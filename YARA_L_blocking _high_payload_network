@@ -1,0 +1,17 @@
+// Rule to detect high payload size and suspicious content
+rule SuspiciousHighPayload
+{
+    meta:
+        description = "Detects suspicious network traffic with high payload"
+        author = "0tamim"
+        version = "1.0"
+        last_modified = "2024-08-22"
+
+    strings:
+        // Example pattern: Large number of repeated bytes
+        $suspicious_payload = { 90 90 90 90 90 90 90 90 } // NOP sled (often used in exploits)
+
+    condition:
+        // Size of payload is greater than 1000 bytes and contains the suspicious pattern
+        filesize > 1000 and $suspicious_payload
+}
