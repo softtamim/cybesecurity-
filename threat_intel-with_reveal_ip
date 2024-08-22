@@ -1,0 +1,90 @@
+import requests
+import win32com.client
+from scapy.all import sniff
+from datetime import datetime
+
+# Constants
+API_KEY = 'YOUR_IPGEOLOCATION_API_KEY'
+BLOCKED_IPS = set()  # Set to keep track of blocked IPs
+
+# Functions to interact with Windows Firewall
+def block_ip(ip_address):
+    fw_policy = win32com.client.Dispatch("HNetCfg.FwPolicy2")
+    firewall_rules = fw_policy.Rules
+
+    rule_name = f"Block {ip_address}"
+    # Check if rule already exists
+    for rule in firewall_rules:
+        if rule.Name == rule_name:
+            print(f"Rule '{rule_name}' already exists.")
+            return
+
+    rule = win32com.client.Dispatch("HNetCfg.FWRule")
+    rule.Name = rule_name
+    rule.Description = "Block specific IP address"
+    rule.ApplicationName = ""
+    rule.Enabled = True
+    rule.Direction = 1  # Inbound
+    rule.Action = 0  # Block
+    rule.RemoteAddresses = ip_address
+    rule.Protocol = 1  # TCP
+
+    firewall_rules.Add(rule)
+    BLOCKED_IPS.add(ip_address)
+    print(f"Blocked IP address: {ip_address}")
+
+def unblock_ip(ip_address):
+    fw_policy = win32com.client.Dispatch("HNetCfg.FwPolicy2")
+    firewall_rules = fw_policy.Rules
+
+    rule_name = f"Block {ip_address}"
+    for rule in firewall_rules:
+        if rule.Name == rule_name:
+            firewall_rules.Remove(rule.Name)
+            BLOCKED_IPS.discard(ip_address)
+            print(f"Unblocked IP address: {ip_address}")
+            return
+
+# Function to perform IP geolocation lookup
+def reverse_ip_lookup(ip_address):
+    api_url = f"https://api.ipgeolocation.io/ipgeo?apiKey={API_KEY}&ip={ip_address}"
+    try:
+        response = requests.get(api_url)
+        response.raise_for_status()
+        data = response.json()
+        return data
+    except requests.RequestException as e:
+        print(f"Error in IP lookup: {e}")
+        return None
+
+# Packet processing callback
+def packet_callback(packet):
+    if packet.haslayer('IP'):
+        ip_src = packet['IP'].src
+        ip_dst = packet['IP'].dst
+
+        # Log packet information
+        print(f"Packet: {ip_src} -> {ip_dst}")
+
+        # Example condition to block an IP (e.g., suspicious source IP)
+        if ip_src not in BLOCKED_IPS:
+            print(f"Detected potentially suspicious IP: {ip_src}")
+
+            # Perform reverse IP lookup
+            ip_info = reverse_ip_lookup(ip_src)
+            if ip_info and ip_info.get('country_name') == 'Unknown':  # Example condition
+                block_ip(ip_src)
+                print(f"Suspicious IP blocked: {ip_src}")
+            else:
+                print(f"IP information: {ip_info}")
+
+# Main function to start monitoring
+def main():
+    print("Starting network monitoring...")
+    try:
+        sniff(prn=packet_callback, store=0, timeout=600)  # Monitor for 10 minutes
+    except KeyboardInterrupt:
+        print("Monitoring stopped.")
+
+if __name__ == "__main__":
+    main()
